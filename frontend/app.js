@@ -281,20 +281,22 @@ async function loadLeads() {
         const tbody = document.getElementById('leads-tbody');
         tbody.innerHTML = '';
         
+        let htmlStr = '';
         data.forEach(lead => {
             const scorePercent = (lead.propensity_ratio * 100).toFixed(1);
             let badgeClass = 'warning';
             if (lead.propensity_ratio > 0.7) badgeClass = 'success';
             
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><strong>${lead.name}</strong></td>
-                <td><span class="badge ${badgeClass}">${scorePercent}% Score</span></td>
-                <td><i class="ph-fill ph-lightbulb" style="color:var(--warning); margin-right:8px;"></i>${lead.top_reasons[0]}</td>
-                <td>${lead.contact_number}</td>
+            htmlStr += `
+                <tr>
+                    <td><strong>${lead.name}</strong></td>
+                    <td><span class="badge ${badgeClass}">${scorePercent}% Score</span></td>
+                    <td><i class="ph-fill ph-lightbulb" style="color:var(--warning); margin-right:8px;"></i>${lead.top_reasons[0]}</td>
+                    <td>${lead.contact_number}</td>
+                </tr>
             `;
-            tbody.appendChild(tr);
         });
+        tbody.innerHTML = htmlStr;
     } catch (e) {
         console.error(e);
     }
@@ -306,21 +308,23 @@ async function loadCustomers() {
         const tbody = document.getElementById('customers-tbody');
         tbody.innerHTML = '';
         
+        let htmlStr = '';
         data.forEach(cust => {
             const scorePercent = (cust.churn_ratio * 100).toFixed(1);
             let badgeClass = 'warning';
             if (cust.churn_ratio > 0.7) badgeClass = 'danger';
             
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><strong>#${cust.customer_id}</strong><br><small style="color:var(--text-secondary)">${cust.name}</small></td>
-                <td><span class="badge ${badgeClass}">${scorePercent}% Risk</span></td>
-                <td><i class="ph-fill ph-warning-circle" style="color:var(--danger); margin-right:8px;"></i>${cust.top_reasons[0]}</td>
-                <td><span class="badge ${cust.sentiment === 'Negative' ? 'danger' : (cust.sentiment === 'Positive' ? 'success' : 'warning')}">${cust.sentiment}</span></td>
-                <td>${cust.contact_number || 'N/A'}</td>
+            htmlStr += `
+                <tr>
+                    <td><strong>#${cust.customer_id}</strong><br><small style="color:var(--text-secondary)">${cust.name}</small></td>
+                    <td><span class="badge ${badgeClass}">${scorePercent}% Risk</span></td>
+                    <td><i class="ph-fill ph-warning-circle" style="color:var(--danger); margin-right:8px;"></i>${cust.top_reasons[0]}</td>
+                    <td><span class="badge ${cust.sentiment === 'Negative' ? 'danger' : (cust.sentiment === 'Positive' ? 'success' : 'warning')}">${cust.sentiment}</span></td>
+                    <td>${cust.contact_number || 'N/A'}</td>
+                </tr>
             `;
-            tbody.appendChild(tr);
         });
+        tbody.innerHTML = htmlStr;
     } catch (e) {
         console.error(e);
     }
@@ -560,20 +564,22 @@ async function loadAllLeads() {
         const data = await fetchWithAuth('/leads/predicted/all');
         tbody.innerHTML = '';
         
+        let htmlStr = '';
         data.forEach(lead => {
             const scorePercent = (lead.propensity_ratio * 100).toFixed(1);
             let badgeClass = 'warning';
             if (lead.propensity_ratio > 0.7) badgeClass = 'success';
             
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><strong>${lead.name}</strong><br><small style="color:var(--text-secondary)">${lead.email}</small></td>
-                <td><span class="badge ${badgeClass}">${scorePercent}% Score</span></td>
-                <td><i class="ph-fill ph-lightbulb" style="color:var(--warning); margin-right:8px;"></i>${lead.top_reasons[0] || 'Unknown'}</td>
-                <td>${lead.contact_number}</td>
+            htmlStr += `
+                <tr>
+                    <td><strong>${lead.name}</strong><br><small style="color:var(--text-secondary)">${lead.email}</small></td>
+                    <td><span class="badge ${badgeClass}">${scorePercent}% Score</span></td>
+                    <td><i class="ph-fill ph-lightbulb" style="color:var(--warning); margin-right:8px;"></i>${lead.top_reasons[0] || 'Unknown'}</td>
+                    <td>${lead.contact_number}</td>
+                </tr>
             `;
-            tbody.appendChild(tr);
         });
+        tbody.innerHTML = htmlStr;
     } catch (e) {
         console.error(e);
         showToast('Failed to load all leads', 'error');
@@ -588,21 +594,23 @@ async function loadAllCustomers() {
         const data = await fetchWithAuth('/customers/predicted/all');
         tbody.innerHTML = '';
         
+        let htmlStr = '';
         data.forEach(cust => {
             const scorePercent = (cust.churn_ratio * 100).toFixed(1);
             let badgeClass = 'warning';
             if (cust.churn_ratio > 0.7) badgeClass = 'danger';
             
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><strong>#${cust.customer_id}</strong><br><small style="color:var(--text-secondary)">${cust.name}<br>${cust.email}</small></td>
-                <td><span class="badge ${badgeClass}">${scorePercent}% Risk</span></td>
-                <td><i class="ph-fill ph-warning-circle" style="color:var(--danger); margin-right:8px;"></i>${cust.top_reasons[0] || 'Unknown'}</td>
-                <td><span class="badge ${cust.sentiment === 'Negative' ? 'danger' : (cust.sentiment === 'Positive' ? 'success' : 'warning')}">${cust.sentiment}</span></td>
-                <td>${cust.contact_number || 'N/A'}</td>
+            htmlStr += `
+                <tr>
+                    <td><strong>#${cust.customer_id}</strong><br><small style="color:var(--text-secondary)">${cust.name}<br>${cust.email}</small></td>
+                    <td><span class="badge ${badgeClass}">${scorePercent}% Risk</span></td>
+                    <td><i class="ph-fill ph-warning-circle" style="color:var(--danger); margin-right:8px;"></i>${cust.top_reasons[0] || 'Unknown'}</td>
+                    <td><span class="badge ${cust.sentiment === 'Negative' ? 'danger' : (cust.sentiment === 'Positive' ? 'success' : 'warning')}">${cust.sentiment}</span></td>
+                    <td>${cust.contact_number || 'N/A'}</td>
+                </tr>
             `;
-            tbody.appendChild(tr);
         });
+        tbody.innerHTML = htmlStr;
     } catch (e) {
         console.error(e);
         showToast('Failed to load all customers', 'error');

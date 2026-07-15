@@ -303,19 +303,20 @@ class CustomerPredictor:
             )
             .filter(CustomerPrediction.risk_category == 'High')
             .order_by(desc(CustomerPrediction.churn_ratio))
+            .limit(100)
             .all()
         )
 
         if not predictions:
             return []
 
+        customer_ids = [pred.customer_id for pred in predictions]
+        customers = db.query(Customer).filter(Customer.customer_id.in_(customer_ids)).all()
+        customer_map = {c.customer_id: c for c in customers}
+
         results: list[dict] = []
         for pred in predictions:
-            customer = (
-                db.query(Customer)
-                .filter(Customer.customer_id == pred.customer_id)
-                .first()
-            )
+            customer = customer_map.get(pred.customer_id)
             results.append(
                 {
                     'name': customer.name if customer else 'Unknown',
@@ -366,19 +367,20 @@ class CustomerPredictor:
                 & (CustomerPrediction.prediction_timestamp == subq.c.max_ts),
             )
             .order_by(desc(CustomerPrediction.churn_ratio))
+            .limit(100)
             .all()
         )
 
         if not predictions:
             return []
 
+        customer_ids = [pred.customer_id for pred in predictions]
+        customers = db.query(Customer).filter(Customer.customer_id.in_(customer_ids)).all()
+        customer_map = {c.customer_id: c for c in customers}
+
         results: list[dict] = []
         for pred in predictions:
-            customer = (
-                db.query(Customer)
-                .filter(Customer.customer_id == pred.customer_id)
-                .first()
-            )
+            customer = customer_map.get(pred.customer_id)
             results.append(
                 {
                     'customer_id': pred.customer_id,

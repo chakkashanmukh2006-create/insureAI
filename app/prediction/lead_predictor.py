@@ -279,9 +279,13 @@ class LeadPredictor:
         if not predictions:
             return []
 
+        lead_ids = [pred.lead_id for pred in predictions]
+        leads = db.query(Lead).filter(Lead.lead_id.in_(lead_ids)).all()
+        lead_map = {l.lead_id: l for l in leads}
+
         results: list[dict] = []
         for pred in predictions:
-            lead = db.query(Lead).filter(Lead.lead_id == pred.lead_id).first()
+            lead = lead_map.get(pred.lead_id)
             results.append(
                 {
                     'name': lead.full_name if lead else 'Unknown',
@@ -329,15 +333,20 @@ class LeadPredictor:
                 & (LeadPrediction.prediction_timestamp == subq.c.max_ts),
             )
             .order_by(desc(LeadPrediction.propensity_ratio))
+            .limit(100)
             .all()
         )
 
         if not predictions:
             return []
 
+        lead_ids = [pred.lead_id for pred in predictions]
+        leads = db.query(Lead).filter(Lead.lead_id.in_(lead_ids)).all()
+        lead_map = {l.lead_id: l for l in leads}
+
         results: list[dict] = []
         for pred in predictions:
-            lead = db.query(Lead).filter(Lead.lead_id == pred.lead_id).first()
+            lead = lead_map.get(pred.lead_id)
             results.append(
                 {
                     'name': lead.full_name if lead else 'Unknown',
