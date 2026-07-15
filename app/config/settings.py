@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     )
 
     # Database
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/insurance_ai_db"
+    DATABASE_URL: str = "sqlite:///./insurance.db"
 
     # JWT Authentication
     JWT_SECRET_KEY: str = "your-super-secret-key-change-in-production"
