@@ -130,26 +130,12 @@ if os.path.exists("frontend"):
     app.mount("/ui", StaticFiles(directory="frontend", html=True), name="frontend")
     logger.info("✅ UI frontend mounted at /ui")
 
+from fastapi.responses import RedirectResponse
+
 @app.get("/", tags=["Root"])
 async def root():
-    """Root endpoint returning system information and available API links."""
-    return {
-        "message": "Welcome to the Insurance AI Intelligence System",
-        "version": "1.0.0",
-        "description": "AI-powered Lead Propensity & Customer Churn Intelligence Platform",
-        "docs": "/docs",
-        "redoc": "/redoc",
-        "health": "/health",
-        "endpoints": {
-            "authentication": "/api/auth",
-            "leads": "/api/leads",
-            "customers": "/api/customers",
-            "training": "/api/training",
-            "predictions": "/api/predictions",
-            "dashboard": "/api/dashboard",
-        },
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+    """Redirect root to the UI dashboard."""
+    return RedirectResponse(url="/ui/")
 
 
 @app.get("/health", tags=["Health"])
