@@ -231,14 +231,16 @@ function switchTab(targetId) {
 }
 
 // Data Fetching
-async function fetchWithAuth(url) {
+async function fetchWithAuth(url, options = {}) {
     // Bulletproof cache-busting by appending a unique timestamp
     const separator = url.includes('?') ? '&' : '?';
     const noCacheUrl = `${API_BASE}${url}${separator}_t=${new Date().getTime()}`;
     
     const res = await fetch(noCacheUrl, {
+        ...options,
         headers: {
-            'Authorization': `Bearer ${state.token}`
+            'Authorization': `Bearer ${state.token}`,
+            ...(options.headers || {})
         },
         cache: 'no-store'
     });
