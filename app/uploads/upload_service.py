@@ -322,14 +322,27 @@ class UploadService:
                 f"(already exist in '{target_table}')."
             )
 
-        # Insert records
+        # Fill default values that would otherwise be missed by bulk_insert_mappings
+        if target_table == "customers":
+            defaults = {"renewal_history": 0, "claim_history": 0, "complaint_count": 0, "support_tickets": 0}
+        else:
+            defaults = {"website_visits": 0, "email_opens": 0, "calls_answered": 0, "form_submitted": 0, "last_interaction_days": 0}
+            
+        for col, default_val in defaults.items():
+            if col not in df.columns:
+                df[col] = default_val
+
+        # Insert records in chunks to prevent OOM
         try:
-            records_to_insert = [model_class(**row) for row in df.to_dict('records')]
+            chunk_size = 10000
+            records_inserted = 0
             
-            if records_to_insert:
-                db.add_all(records_to_insert)
-            
-            records_inserted = len(records_to_insert)
+            for i in range(0, len(df), chunk_size):
+                chunk_df = df.iloc[i:i+chunk_size]
+                chunk_records = chunk_df.to_dict('records')
+                if chunk_records:
+                    db.bulk_insert_mappings(model_class, chunk_records)
+                    records_inserted += len(chunk_records)
 
             # Log upload to uploaded_files table
             upload_record = UploadedFile(
