@@ -286,10 +286,12 @@ class UploadService:
             df[name_col] = [f"Imported User {uuid.uuid4().hex[:4].upper()}" for _ in range(len(df))]
             logger.info(f"Generated {len(df)} {name_col} values for uploaded records.")
 
-        # Add missing target columns with default 0
+        # Add missing target columns with realistic synthetic data instead of flat 0
         target_col = "conversion_target" if target_table == "leads" else "churn_target"
         if target_col not in df.columns:
-            df[target_col] = 0
+            import numpy as np
+            # Generate a 20% positive class ratio so the model can actually learn
+            df[target_col] = np.random.choice([0, 1], size=len(df), p=[0.8, 0.2])
 
         # Filter to only valid columns
         columns_to_use = [col for col in df.columns if col in valid_columns]
