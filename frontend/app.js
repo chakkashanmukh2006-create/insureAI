@@ -172,12 +172,22 @@ function setupEventListeners() {
                 },
                 body: JSON.stringify({ notes: "Triggered from UI" })
             });
-            if (!res.ok) throw new Error('Training failed');
+            
+            if (!res.ok) {
+                let errMessage = 'Training failed';
+                try {
+                    const data = await res.json();
+                    errMessage = data.detail || errMessage;
+                } catch(e) {
+                    errMessage = `Server error ${res.status}`;
+                }
+                throw new Error(errMessage);
+            }
             
             showToast('Models successfully retrained!', 'success');
             loadDashboard(); // Refresh stats
         } catch(err) {
-            showToast(err.message, 'error');
+            showToast(err.message, 'error', 5000);
         } finally {
             btn.innerHTML = '<i class="ph ph-arrows-clockwise"></i><span>Retrain Models</span>';
             btn.disabled = false;
@@ -317,21 +327,43 @@ async function loadCustomers() {
 }
 
 // Toast Helper
-function showToast(message, type='success') {
+function showToast(message, type='success', duration=3000) {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = 'toast';
     
-    const icon = type === 'success' ? '<i class="ph-fill ph-check-circle" style="color:var(--success)"></i>' : '<i class="ph-fill ph-warning-circle" style="color:var(--danger)"></i>';
+    const toastId = 'toast-' + Math.random().toString(36).substr(2, 9);
+    toast.id = toastId;
+    
+    let icon = '';
+    if (type === 'success') {
+        icon = '<i class="ph-fill ph-check-circle" style="color:var(--success)"></i>';
+    } else if (type === 'error') {
+        icon = '<i class="ph-fill ph-warning-circle" style="color:var(--danger)"></i>';
+    } else if (type === 'warning') {
+        icon = '<i class="ph-fill ph-warning" style="color:var(--warning)"></i>';
+    } else if (type === 'loading') {
+        icon = '<i class="ph ph-spinner ph-spin" style="color:var(--warning)"></i>';
+    }
     
     toast.innerHTML = `${icon} <span>${message}</span>`;
     container.appendChild(toast);
     
-    setTimeout(() => {
+    if (duration > 0) {
+        setTimeout(() => {
+            removeToast(toastId);
+        }, duration);
+    }
+    return toastId;
+}
+
+function removeToast(toastId) {
+    const toast = document.getElementById(toastId);
+    if (toast) {
         toast.style.opacity = '0';
         toast.style.transform = 'translateX(100%)';
         setTimeout(() => toast.remove(), 300);
-    }, 3000);
+    }
 }
 
 // Modal Logic
@@ -415,7 +447,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function handleFileUpload(file, endpoint, type) {
-    showToast(`Uploading ${type} file...`, 'warning');
+    const toastId = showToast(`Uploading ${type} file... Please wait.`, 'loading', 0);
     const formData = new FormData();
     formData.append('file', file);
     
@@ -429,19 +461,28 @@ async function handleFileUpload(file, endpoint, type) {
             body: formData
         });
         
+        removeToast(toastId);
+        
         if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.detail || `Failed to upload ${type}`);
+            let errMessage = `Failed to upload ${type}`;
+            try {
+                const err = await response.json();
+                errMessage = err.detail || errMessage;
+            } catch (e) {
+                errMessage = `Server error ${response.status}. The file might be too large or invalid.`;
+            }
+            throw new Error(errMessage);
         }
         
         const result = await response.json();
-        showToast(`Successfully uploaded ${result.records_inserted} ${type}!`, 'success');
+        showToast(`Successfully uploaded ${result.records_inserted} ${type}!`, 'success', 5000);
         
         // Refresh dashboard to show new numbers
         await loadDashboard();
     } catch (error) {
+        removeToast(toastId);
         console.error(error);
-        showToast(error.message, 'error');
+        showToast(error.message, 'error', 6000);
     }
 }
 

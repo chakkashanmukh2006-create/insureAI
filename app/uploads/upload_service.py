@@ -323,13 +323,13 @@ class UploadService:
             )
 
         # Insert records
-        records_inserted = 0
         try:
-            for _, row in df.iterrows():
-                record_data = row.to_dict()
-                record = model_class(**record_data)
-                db.add(record)
-                records_inserted += 1
+            records_to_insert = [model_class(**row) for row in df.to_dict('records')]
+            
+            if records_to_insert:
+                db.add_all(records_to_insert)
+            
+            records_inserted = len(records_to_insert)
 
             # Log upload to uploaded_files table
             upload_record = UploadedFile(
