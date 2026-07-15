@@ -1,0 +1,434 @@
+"""
+Lead conversion propensity predictor.
+
+Loads the latest trained lead model and preprocessor, runs inference
+on all leads (or individual leads), generates SHAP/feature-importance
+explanations, and persists predictions to the database.
+"""
+
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+import numpy as np
+import pandas as pd
+from sqlalchemy import desc, func
+from sqlalchemy.orm import Session
+
+from app.config.settings import settings
+from app.explainability.explainer import Explainer
+from app.models.lead import Lead
+from app.models.prediction import LeadPrediction
+from app.models.training import ModelRegistry
+from app.training.model_manager import ModelManager
+from app.training.preprocessor import DataPreprocessor
+from app.utils.logger import logger
+
+
+class LeadPredictor:
+    """Predicts lead conversion propensity using the latest trained model."""
+
+    # Score → category thresholds
+    HIGH_THRESHOLD: float = 0.7
+    MEDIUM_THRESHOLD: float = 0.4
+
+    # Feature columns (must match training)
+    FEATURE_COLS: list[str] = [
+        'age', 'gender', 'occupation', 'annual_income', 'city',
+        'existing_policy', 'product_interested', 'website_visits',
+        'email_opens', 'calls_answered', 'form_submitted',
+        'last_interaction_days', 'lead_source',
+    ]
+    BOOL_COLS: list[str] = ['existing_policy', 'form_submitted']
+    CATEGORICAL_COLS: list[str] = [
+        'gender', 'occupation', 'city', 'product_interested', 'lead_source',
+    ]
+
+    # ------------------------------------------------------------------ #
+    # Public API
+    # ------------------------------------------------------------------ #
+
+    def predict_all(self, db: Session) -> list[dict]:
+        """Generate predictions for ALL leads using the latest model.
+
+        Steps:
+          1. Load the latest active lead model from the registry.
+          2. Load the saved preprocessor.
+          3. Fetch all leads from the database.
+          4. Preprocess features identically to training.
+          5. Run batch inference.
+          6. Generate per-lead explanations.
+          7. Bulk-insert ``LeadPrediction`` rows.
+
+        Args:
+            db: Active SQLAlchemy session.
+
+        Returns:
+            List of prediction result dictionaries.
+
+        Raises:
+            ValueError: If no trained model is available.
+        """
+        # 1. Load model
+        model, registry = ModelManager.load_latest_model(db, 'lead')
+        if model is None or registry is None:
+            raise ValueError(
+                "No trained lead model found. Please train a model first."
+            )
+
+        # 2. Load preprocessor
+        preprocessor = DataPreprocessor.load(
+            settings.MODEL_STORAGE_PATH, 'lead'
+        )
+
+        # 3. Fetch leads
+        leads = db.query(Lead).all()
+        if not leads:
+            logger.warning("No leads in database — nothing to predict.")
+            return []
+
+        # 4. Preprocess
+        X_scaled = self._preprocess_batch(leads, preprocessor)
+
+        # 5. Predict probabilities
+        probabilities: np.ndarray = model.predict_proba(X_scaled)[:, 1]
+
+        # 6 + 7. Build predictions and persist
+        explainer = Explainer()
+        results: list[dict] = []
+        predictions_to_add: list[LeadPrediction] = []
+        now = datetime.now(timezone.utc)
+
+        for idx, lead in enumerate(leads):
+            propensity = float(probabilities[idx])
+            score = propensity * 100
+            category = self._categorise(propensity)
+
+            reasons = explainer.explain_lead(
+                model, X_scaled.iloc[[idx]], preprocessor.feature_names, lead
+            )
+
+            prediction_id = str(uuid.uuid4())
+
+            pred = LeadPrediction(
+                prediction_id=prediction_id,
+                lead_id=lead.lead_id,
+                propensity_ratio=propensity,
+                lead_score=score,
+                category=category,
+                top_reasons=reasons[:3],
+                model_version=registry.model_version,
+                model_accuracy=registry.accuracy,
+                algorithm=registry.algorithm,
+                prediction_timestamp=now,
+                training_timestamp=registry.training_date,
+                email=lead.email,
+                contact_number=lead.contact_number,
+            )
+            predictions_to_add.append(pred)
+
+            results.append(
+                {
+                    'prediction_id': prediction_id,
+                    'lead_id': lead.lead_id,
+                    'full_name': lead.full_name,
+                    'propensity_ratio': propensity,
+                    'lead_score': score,
+                    'category': category,
+                    'top_reasons': reasons[:3],
+                    'email': lead.email,
+                    'contact_number': lead.contact_number,
+                    'model_version': registry.model_version,
+                    'model_accuracy': registry.accuracy,
+                    'algorithm': registry.algorithm,
+                    'prediction_timestamp': now,
+                    'training_timestamp': registry.training_date,
+                }
+            )
+
+        # Bulk insert
+        db.bulk_save_objects(predictions_to_add)
+        db.commit()
+
+        logger.info(
+            f"Generated {len(results)} lead predictions using model "
+            f"{registry.model_version}"
+        )
+        return results
+
+    def predict_single(self, db: Session, lead_id: str) -> dict:
+        """Generate a prediction for a single lead.
+
+        Args:
+            db: Active SQLAlchemy session.
+            lead_id: The ``lead_id`` to predict.
+
+        Returns:
+            Prediction result dictionary.
+
+        Raises:
+            ValueError: If no model or lead is found.
+        """
+        model, registry = ModelManager.load_latest_model(db, 'lead')
+        if model is None or registry is None:
+            raise ValueError("No trained lead model found.")
+
+        lead = db.query(Lead).filter(Lead.lead_id == lead_id).first()
+        if lead is None:
+            raise ValueError(f"Lead with id '{lead_id}' not found.")
+
+        preprocessor = DataPreprocessor()
+        lead_data = {
+            'age': lead.age,
+            'gender': lead.gender,
+            'occupation': lead.occupation,
+            'annual_income': lead.annual_income,
+            'city': lead.city,
+            'existing_policy': lead.existing_policy,
+            'product_interested': lead.product_interested,
+            'website_visits': lead.website_visits,
+            'email_opens': lead.email_opens,
+            'calls_answered': lead.calls_answered,
+            'form_submitted': lead.form_submitted,
+            'last_interaction_days': lead.last_interaction_days,
+            'lead_source': lead.lead_source,
+        }
+        X_scaled = preprocessor.preprocess_lead_single(lead_data)
+
+        propensity = float(model.predict_proba(X_scaled)[:, 1][0])
+        score = propensity * 100
+        category = self._categorise(propensity)
+
+        explainer = Explainer()
+        reasons = explainer.explain_lead(
+            model, X_scaled, preprocessor.feature_names, lead
+        )
+
+        now = datetime.now(timezone.utc)
+        prediction_id = str(uuid.uuid4())
+
+        pred = LeadPrediction(
+            prediction_id=prediction_id,
+            lead_id=lead.lead_id,
+            propensity_ratio=propensity,
+            lead_score=score,
+            category=category,
+            top_reasons=reasons[:3],
+            model_version=registry.model_version,
+            model_accuracy=registry.accuracy,
+            algorithm=registry.algorithm,
+            prediction_timestamp=now,
+            training_timestamp=registry.training_date,
+            email=lead.email,
+            contact_number=lead.contact_number,
+        )
+        db.add(pred)
+        db.commit()
+
+        return {
+            'prediction_id': prediction_id,
+            'lead_id': lead.lead_id,
+            'full_name': lead.full_name,
+            'propensity_ratio': propensity,
+            'lead_score': score,
+            'category': category,
+            'top_reasons': reasons[:3],
+            'email': lead.email,
+            'contact_number': lead.contact_number,
+            'model_version': registry.model_version,
+            'model_accuracy': registry.accuracy,
+            'algorithm': registry.algorithm,
+            'prediction_timestamp': now,
+            'training_timestamp': registry.training_date,
+        }
+
+    def get_top20(self, db: Session) -> list[dict]:
+        """Get top 20 leads by propensity ratio (latest prediction per lead).
+
+        Uses a subquery to select only the most recent prediction per
+        ``lead_id``, then orders descending by ``propensity_ratio``.
+
+        Args:
+            db: Active SQLAlchemy session.
+
+        Returns:
+            List of up to 20 result dictionaries.
+        """
+        # Subquery: latest prediction timestamp per lead
+        subq = (
+            db.query(
+                LeadPrediction.lead_id,
+                func.max(LeadPrediction.prediction_timestamp).label('max_ts'),
+            )
+            .group_by(LeadPrediction.lead_id)
+            .subquery()
+        )
+
+        predictions = (
+            db.query(LeadPrediction)
+            .join(
+                subq,
+                (LeadPrediction.lead_id == subq.c.lead_id)
+                & (LeadPrediction.prediction_timestamp == subq.c.max_ts),
+            )
+            .order_by(desc(LeadPrediction.propensity_ratio))
+            .limit(20)
+            .all()
+        )
+
+        if not predictions:
+            return []
+
+        results: list[dict] = []
+        for pred in predictions:
+            lead = db.query(Lead).filter(Lead.lead_id == pred.lead_id).first()
+            results.append(
+                {
+                    'name': lead.full_name if lead else 'Unknown',
+                    'lead_id': pred.lead_id,
+                    'propensity_ratio': pred.propensity_ratio,
+                    'lead_score': pred.lead_score,
+                    'category': pred.category,
+                    'email': pred.email,
+                    'contact_number': pred.contact_number,
+                    'top_reasons': pred.top_reasons or [],
+                    'model_version': pred.model_version,
+                    'training_timestamp': pred.training_timestamp,
+                    'prediction_timestamp': pred.prediction_timestamp,
+                }
+            )
+
+        return results
+
+    def get_all_predicted(self, db: Session) -> list[dict]:
+        """Get all leads with their latest propensity predictions.
+
+        Uses a subquery to select the most recent prediction per ``lead_id``.
+
+        Args:
+            db: Active SQLAlchemy session.
+
+        Returns:
+            List of all result dictionaries ordered by propensity ratio descending.
+        """
+        # Subquery: latest prediction timestamp per lead
+        subq = (
+            db.query(
+                LeadPrediction.lead_id,
+                func.max(LeadPrediction.prediction_timestamp).label('max_ts'),
+            )
+            .group_by(LeadPrediction.lead_id)
+            .subquery()
+        )
+
+        predictions = (
+            db.query(LeadPrediction)
+            .join(
+                subq,
+                (LeadPrediction.lead_id == subq.c.lead_id)
+                & (LeadPrediction.prediction_timestamp == subq.c.max_ts),
+            )
+            .order_by(desc(LeadPrediction.propensity_ratio))
+            .all()
+        )
+
+        if not predictions:
+            return []
+
+        results: list[dict] = []
+        for pred in predictions:
+            lead = db.query(Lead).filter(Lead.lead_id == pred.lead_id).first()
+            results.append(
+                {
+                    'name': lead.full_name if lead else 'Unknown',
+                    'lead_id': pred.lead_id,
+                    'propensity_ratio': pred.propensity_ratio,
+                    'lead_score': pred.lead_score,
+                    'category': pred.category,
+                    'email': pred.email,
+                    'contact_number': pred.contact_number,
+                    'top_reasons': pred.top_reasons or [],
+                    'model_version': pred.model_version,
+                    'training_timestamp': pred.training_timestamp,
+                    'prediction_timestamp': pred.prediction_timestamp,
+                }
+            )
+
+        return results
+
+    # ------------------------------------------------------------------ #
+    # Internal helpers
+    # ------------------------------------------------------------------ #
+
+    def _preprocess_batch(
+        self, leads: list[Lead], preprocessor: DataPreprocessor
+    ) -> pd.DataFrame:
+        """Build a feature matrix from a list of Lead ORM objects using
+        the saved preprocessor's encoders and scaler.
+
+        Args:
+            leads: List of Lead ORM instances.
+            preprocessor: Previously loaded ``DataPreprocessor``.
+
+        Returns:
+            Scaled feature DataFrame.
+        """
+        lead_data = [
+            {
+                'age': lead.age,
+                'gender': lead.gender,
+                'occupation': lead.occupation,
+                'annual_income': lead.annual_income,
+                'city': lead.city,
+                'existing_policy': lead.existing_policy,
+                'product_interested': lead.product_interested,
+                'website_visits': lead.website_visits,
+                'email_opens': lead.email_opens,
+                'calls_answered': lead.calls_answered,
+                'form_submitted': lead.form_submitted,
+                'last_interaction_days': lead.last_interaction_days,
+                'lead_source': lead.lead_source,
+            }
+            for lead in leads
+        ]
+        df = pd.DataFrame(lead_data)
+        X = df[self.FEATURE_COLS].copy()
+
+        # Fill missing values
+        for col in X.select_dtypes(include=[np.number]).columns:
+            X[col] = X[col].fillna(X[col].median())
+        for col in X.select_dtypes(include=['object']).columns:
+            X[col] = X[col].fillna('Unknown')
+
+        # Convert booleans
+        for col in self.BOOL_COLS:
+            if col in X.columns:
+                X[col] = X[col].astype(int)
+
+        # Label-encode using saved encoders (handle unseen labels)
+        for col in self.CATEGORICAL_COLS:
+            key = f'lead_{col}'
+            if key in preprocessor.label_encoders:
+                le = preprocessor.label_encoders[key]
+                X[col] = X[col].astype(str).apply(
+                    lambda val, _le=le: (
+                        _le.transform([val])[0] if val in _le.classes_ else -1
+                    )
+                )
+            else:
+                X[col] = 0
+
+        # Scale
+        X_scaled = pd.DataFrame(
+            preprocessor.scaler.transform(X),
+            columns=preprocessor.feature_names,
+        )
+        return X_scaled
+
+    def _categorise(self, propensity: float) -> str:
+        """Map a propensity probability to a human-readable category."""
+        if propensity >= self.HIGH_THRESHOLD:
+            return 'High'
+        if propensity >= self.MEDIUM_THRESHOLD:
+            return 'Medium'
+        return 'Low'

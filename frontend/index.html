@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Insurance AI Intelligence System</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <link rel="stylesheet" href="/ui/styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Login View -->
+        <div id="login-view" class="view active">
+            <div class="login-card glass-panel">
+                <div class="logo-container">
+                    <i class="ph-fill ph-shield-check"></i>
+                </div>
+                <h2>Insurance AI</h2>
+                <p>Sign in to access intelligence</p>
+                
+                <form id="login-form">
+                    <div class="input-group">
+                        <i class="ph ph-user"></i>
+                        <input type="text" id="username" placeholder="Username" required>
+                    </div>
+                    <div class="input-group">
+                        <i class="ph ph-lock-key"></i>
+                        <input type="password" id="password" placeholder="Password" required>
+                    </div>
+                    <button type="submit" class="btn primary-btn" id="login-btn">
+                        <span>Sign In</span>
+                        <i class="ph-bold ph-arrow-right"></i>
+                    </button>
+                    <div id="login-error" class="error-text"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Main Dashboard View -->
+        <div id="main-view" class="view">
+            <!-- Sidebar -->
+            <nav class="sidebar glass-panel">
+                <div class="sidebar-header">
+                    <i class="ph-fill ph-shield-check"></i>
+                    <h2>InsureAI</h2>
+                </div>
+                <ul class="nav-links">
+                    <li class="nav-item active" data-tab="dashboard-tab">
+                        <i class="ph ph-squares-four"></i>
+                        <span>Overview</span>
+                    </li>
+                    <li class="nav-item" data-tab="leads-tab">
+                        <i class="ph ph-target"></i>
+                        <span>Top Leads</span>
+                    </li>
+                    <li class="nav-item" data-tab="customers-tab">
+                        <i class="ph ph-warning-circle"></i>
+                        <span>At-Risk Customers</span>
+                    </li>
+                </ul>
+                <div class="sidebar-footer">
+                    <button id="logout-btn" class="btn text-btn">
+                        <i class="ph ph-sign-out"></i>
+                        <span>Log Out</span>
+                    </button>
+                </div>
+            </nav>
+
+            <!-- Main Content Area -->
+            <main class="content-area">
+                <header class="topbar">
+                    <h1 id="page-title">Overview Dashboard</h1>
+                    <div class="user-profile">
+                        <div class="avatar"><i class="ph-fill ph-user"></i></div>
+                        <span id="current-username">Admin</span>
+                    </div>
+                </header>
+
+                <div class="tab-content-wrapper">
+                    <!-- Dashboard Tab -->
+                    <div id="dashboard-tab" class="tab-pane active">
+                        <div class="stats-grid">
+                            <div class="stat-card glass-panel" id="card-total-leads">
+                                <div class="stat-icon blue"><i class="ph-fill ph-users"></i></div>
+                                <div class="stat-info">
+                                    <span class="stat-label">Total Leads</span>
+                                    <h3 id="stat-total-leads">--</h3>
+                                </div>
+                            </div>
+                            
+                            <div class="stat-card glass-panel" id="card-total-customers">
+                                <div class="stat-icon green"><i class="ph-fill ph-check-circle"></i></div>
+                                <div class="stat-info">
+                                    <span class="stat-label">Total Customers</span>
+                                    <h3 id="stat-total-customers">--</h3>
+                                </div>
+                            </div>
+
+                            <div class="stat-card glass-panel clickable" id="card-last-trained" title="View Training History">
+                                <div class="stat-icon orange"><i class="ph-fill ph-clock-counter-clockwise"></i></div>
+                                <div class="stat-info">
+                                    <span class="stat-label">Last Trained</span>
+                                    <h3 id="stat-last-trained">--</h3>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="charts-grid">
+                            <div class="chart-card glass-panel">
+                                <h3>System Info</h3>
+                                <p><strong>Lead Model Accuracy:</strong> <span id="info-lead-acc">--</span></p>
+                                <p><strong>Customer Model Accuracy:</strong> <span id="info-cust-acc">--</span></p>
+                                <div class="action-row">
+                                    <button id="train-btn" class="btn secondary-btn">
+                                        <i class="ph ph-arrows-clockwise"></i>
+                                        <span>Retrain Models</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="chart-card glass-panel">
+                                <h3>Data Management</h3>
+                                <p>Upload new CSV datasets or export existing data.</p>
+                                <div class="action-row" style="margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                    <label for="upload-leads-input" class="btn secondary-btn" style="cursor: pointer; justify-content: center; width: 100%;">
+                                        <i class="ph ph-upload-simple"></i>
+                                        <span>Upload Leads</span>
+                                    </label>
+                                    <input type="file" id="upload-leads-input" accept=".csv" style="display:none">
+                                    
+                                    <button id="export-leads-btn" class="btn secondary-btn" style="justify-content: center; width: 100%;">
+                                        <i class="ph ph-download-simple"></i>
+                                        <span>Export Leads</span>
+                                    </button>
+                                    
+                                    <label for="upload-customers-input" class="btn secondary-btn" style="cursor: pointer; justify-content: center; width: 100%;">
+                                        <i class="ph ph-upload-simple"></i>
+                                        <span>Upload Customers</span>
+                                    </label>
+                                    <input type="file" id="upload-customers-input" accept=".csv" style="display:none">
+                                    
+                                    <button id="export-customers-btn" class="btn secondary-btn" style="justify-content: center; width: 100%;">
+                                        <i class="ph ph-download-simple"></i>
+                                        <span>Export Customers</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Leads Tab -->
+                    <div id="leads-tab" class="tab-pane">
+                        <div class="table-card glass-panel">
+                            <div class="table-header">
+                                <h3>High Propensity Leads</h3>
+                                <p>Top 20 prospects ranked by AI conversion probability.</p>
+                            </div>
+                            <div class="table-responsive">
+                                <table id="leads-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Lead ID</th>
+                                            <th>Target Score</th>
+                                            <th>AI Recommendation Reason</th>
+                                            <th>Source</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="leads-tbody">
+                                        <!-- Populated via JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Customers Tab -->
+                    <div id="customers-tab" class="tab-pane">
+                        <div class="table-card glass-panel">
+                            <div class="table-header">
+                                <h3>High-Risk Customers</h3>
+                                <p>Current policyholders at highest risk of churning.</p>
+                            </div>
+                            <div class="table-responsive">
+                                <table id="customers-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Customer ID</th>
+                                            <th>Risk Level</th>
+                                            <th>Primary Risk Factor</th>
+                                            <th>Policy Type</th>
+                                            <th>Contact</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="customers-tbody">
+                                        <!-- Populated via JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- All Leads Modal -->
+    <div id="modal-all-leads" class="modal-overlay">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h2>All Leads Directory</h2>
+                <button class="modal-close" id="close-modal-leads"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body table-responsive">
+                <table id="all-leads-table">
+                    <thead>
+                        <tr>
+                            <th>Lead</th>
+                            <th>AI Score</th>
+                            <th>Primary Reason</th>
+                            <th>Contact</th>
+                        </tr>
+                    </thead>
+                    <tbody id="all-leads-tbody">
+                        <!-- Populated via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- All Customers Modal -->
+    <div id="modal-all-customers" class="modal-overlay">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h2>All Customers Directory</h2>
+                <button class="modal-close" id="close-modal-customers"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body table-responsive">
+                <table id="all-customers-table">
+                    <thead>
+                        <tr>
+                            <th>Customer</th>
+                            <th>Risk Level</th>
+                            <th>Primary Risk Factor</th>
+                            <th>Sentiment</th>
+                            <th>Contact</th>
+                        </tr>
+                    </thead>
+                    <tbody id="all-customers-tbody">
+                        <!-- Populated via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Training History Modal -->
+    <div id="modal-training-history" class="modal-overlay">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h2>AI Training & Predictions History</h2>
+                <button class="modal-close" id="close-modal-training"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body table-responsive">
+                <table id="training-history-table">
+                    <thead>
+                        <tr>
+                            <th>Date / Time</th>
+                            <th>Model Type</th>
+                            <th>Version</th>
+                            <th>Accuracy</th>
+                            <th>Records Used</th>
+                        </tr>
+                    </thead>
+                    <tbody id="training-history-tbody">
+                        <!-- Populated via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
+    <script src="/ui/app.js?v=2.2"></script>
+</body>
+</html>
