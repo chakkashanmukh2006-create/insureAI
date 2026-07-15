@@ -160,7 +160,8 @@ function setupEventListeners() {
     // Retrain Button
     document.getElementById('train-btn').addEventListener('click', async () => {
         const btn = document.getElementById('train-btn');
-        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i><span>Training Models...</span>';
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i><span>Initializing...</span>';
         btn.disabled = true;
         
         try {
@@ -184,12 +185,48 @@ function setupEventListeners() {
                 throw new Error(errMessage);
             }
             
-            showToast('Models successfully retrained!', 'success');
-            loadDashboard(); // Refresh stats
-        } catch(err) {
-            showToast(err.message, 'error', 5000);
-        } finally {
-            btn.innerHTML = '<i class="ph ph-arrows-clockwise"></i><span>Retrain Models</span>';
+            const startData = await res.json();
+            const jobId = startData.job_id;
+            
+            // Show modal
+            const modal = document.getElementById('modal-training-progress');
+            const logsDiv = document.getElementById('training-logs');
+            logsDiv.innerHTML = 'Initializing training pipeline...<br>';
+            modal.classList.add('active');
+            
+            // Poll for status
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusRes = await fetchWithAuth(`/train/status/${jobId}`);
+                    
+                    if (statusRes.logs && statusRes.logs.length > 0) {
+                        logsDiv.innerHTML = statusRes.logs.join('<br>') + '<br>';
+                        logsDiv.scrollTop = logsDiv.scrollHeight;
+                    }
+                    
+                    if (statusRes.status === 'completed') {
+                        clearInterval(pollInterval);
+                        showToast('Models retrained successfully!', 'success');
+                        setTimeout(() => {
+                            modal.classList.remove('active');
+                            location.reload();
+                        }, 2000);
+                    } else if (statusRes.status === 'failed') {
+                        clearInterval(pollInterval);
+                        showToast('Training failed. See logs.', 'error');
+                        btn.innerHTML = originalText;
+                        btn.disabled = false;
+                        logsDiv.innerHTML += '<br><button onclick="document.getElementById(\'modal-training-progress\').classList.remove(\'active\')" class="btn secondary-btn" style="margin-top:15px; background:#333; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">Close Window</button>';
+                    }
+                } catch (err) {
+                    console.error("Polling error", err);
+                }
+            }, 1500);
+            
+        } catch (e) {
+            console.error(e);
+            showToast(e.message, 'error');
+            btn.innerHTML = originalText;
             btn.disabled = false;
         }
     });

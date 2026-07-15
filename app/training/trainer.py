@@ -11,7 +11,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Optional, Callable
 
 import joblib
 import numpy as np
@@ -69,6 +69,7 @@ class TrainingService:
         db: Session,
         started_by: str,
         notes: Optional[str] = None,
+        log_callback: Optional[Callable[[str], None]] = None,
     ) -> dict[str, dict]:
         """Train both lead and customer models end-to-end.
 
@@ -76,6 +77,7 @@ class TrainingService:
             db: Active SQLAlchemy session.
             started_by: Username / identifier of who triggered training.
             notes: Optional free-form notes to attach to the run.
+            log_callback: Optional callback to stream log messages.
 
         Returns:
             Dictionary with ``'lead_model'`` and ``'customer_model'``
@@ -84,6 +86,7 @@ class TrainingService:
         Raises:
             ValueError: If either table has fewer than ``MIN_RECORDS``.
         """
+        if log_callback: log_callback("Validating dataset sizes...")
         lead_count: int = db.query(Lead).count()
         customer_count: int = db.query(Customer).count()
 
@@ -101,17 +104,20 @@ class TrainingService:
         results: dict[str, dict] = {}
 
         # Train lead propensity model
+        if log_callback: log_callback("Training Lead Propensity XGBoost Model...")
         lead_result = self._train_lead_model(
             db, started_by, lead_count, customer_count, notes
         )
         results['lead_model'] = lead_result
 
         # Train customer churn model
+        if log_callback: log_callback("Training Customer Churn XGBoost Model...")
         customer_result = self._train_customer_model(
             db, started_by, lead_count, customer_count, notes
         )
         results['customer_model'] = customer_result
 
+        if log_callback: log_callback("Models trained successfully. Saving artifacts...")
         logger.info(
             f"Training complete. Lead accuracy: "
             f"{lead_result['accuracy']:.4f}, Customer accuracy: "

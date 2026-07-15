@@ -1,7 +1,7 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from app.database.session import get_db
+from app.database.session import get_db, SessionLocal
 from app.models.user import User
 from app.models.training import TrainingHistory, ModelRegistry
 from app.schemas.training import TrainingHistoryResponse, TrainingLatestResponse, TrainRequest
@@ -11,54 +11,77 @@ from app.prediction.lead_predictor import LeadPredictor
 from app.prediction.customer_predictor import CustomerPredictor
 from app.utils.audit import log_audit
 from app.utils.logger import logger
+from app.training import job_manager
 
 router = APIRouter()
+
+
+def train_models_task(job_id: str, db_session: Session, user_id: int, username: str, notes: str):
+    try:
+        def log_cb(msg: str):
+            job_manager.append_log(job_id, msg)
+        
+        trainer = TrainingService()
+        log_cb("Starting AI training pipeline...")
+        results = trainer.train_all(db_session, started_by=username, notes=notes, log_callback=log_cb)
+        log_audit(db_session, user_id, "train", "models", f"Training completed: {results}")
+        
+        # After training, generate predictions for all records
+        try:
+            log_cb("Generating predictions for all Lead records (this may take a moment)...")
+            lead_predictor = LeadPredictor()
+            lead_predictor.predict_all(db_session)
+            
+            log_cb("Generating predictions for all Customer records (this may take a moment)...")
+            customer_predictor = CustomerPredictor()
+            customer_predictor.predict_all(db_session)
+        except Exception as e:
+            logger.warning(f"Post-training prediction generation failed: {e}")
+            log_cb(f"Warning: Prediction generation encountered an issue: {e}")
+            
+        log_cb("Pipeline finished successfully!")
+        job_manager.mark_completed(job_id, results)
+    except Exception as e:
+        logger.error(f"Background training failed: {e}")
+        job_manager.mark_failed(job_id, str(e))
+    finally:
+        db_session.close()
 
 
 @router.post("/train",
              summary="Train Models",
              description="Retrain both lead propensity and customer churn models using all available data.")
 def train_models(
+    background_tasks: BackgroundTasks,
     request: TrainRequest = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Train/retrain both ML models.
-    
-    This endpoint:
-    1. Loads ALL data from leads and customers tables
-    2. Trains new XGBoost models for both lead propensity and customer churn
-    3. Saves models with incremented version numbers (v1, v2, v3...)
-    4. Updates model registry and training history
-    5. Future predictions automatically use the latest model
-    """
-    trainer = TrainingService()
+    """Start model training in the background."""
+    job_id = job_manager.create_job()
     notes = request.notes if request else None
     
-    try:
-        results = trainer.train_all(db, started_by=current_user.username, notes=notes)
-        log_audit(db, current_user.id, "train", "models", f"Training completed: {results}")
-        
-        # After training, generate predictions for all records
-        try:
-            lead_predictor = LeadPredictor()
-            lead_predictor.predict_all(db)
-            
-            customer_predictor = CustomerPredictor()
-            customer_predictor.predict_all(db)
-        except Exception as e:
-            logger.warning(f"Post-training prediction generation failed: {e}")
-        
-        return {
-            "status": "success",
-            "message": "Models trained successfully",
-            "results": results
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Training failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Training failed: {str(e)}")
+    bg_db = SessionLocal()
+    
+    background_tasks.add_task(
+        train_models_task, 
+        job_id, 
+        bg_db, 
+        current_user.id, 
+        current_user.username, 
+        notes
+    )
+    
+    return {
+        "status": "started",
+        "job_id": job_id,
+        "message": "Model training started in background."
+    }
+
+@router.get("/train/status/{job_id}", summary="Get Training Status")
+def get_training_status(job_id: str):
+    """Retrieve the status and logs for a background training job."""
+    return job_manager.get_job_status(job_id)
 
 
 @router.get("/training/history", response_model=List[TrainingHistoryResponse],
