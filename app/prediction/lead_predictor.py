@@ -81,89 +81,78 @@ class LeadPredictor:
             settings.MODEL_STORAGE_PATH, 'lead'
         )
 
-        # 3. Fetch leads
-        leads = db.query(Lead).all()
-        if not leads:
-            logger.warning("No leads in database — nothing to predict.")
-            return []
-
-        # 4. Preprocess
-        X_scaled = self._preprocess_batch(leads, preprocessor)
-
-        # 5. Predict probabilities
-        probabilities: np.ndarray = model.predict_proba(X_scaled)[:, 1]
-
-        # Batch SHAP
+        # 3. Process in chunks to prevent Out-Of-Memory errors
+        chunk_size = 2000
+        offset = 0
+        total_results = 0
+        
         import shap
         tree_explainer = shap.TreeExplainer(model)
-        shap_values_all = tree_explainer.shap_values(X_scaled)
-        if isinstance(shap_values_all, list):
-            shap_values_all = shap_values_all[1]
-
-        # 6 + 7. Build predictions and persist
         explainer = Explainer()
-        results: list[dict] = []
-        predictions_to_add: list[LeadPrediction] = []
         now = datetime.now(timezone.utc)
+        
+        # Extract primitives to avoid DetachedInstanceError after expunge_all
+        model_version = registry.model_version
+        model_accuracy = registry.accuracy
+        algorithm = registry.algorithm
+        training_date = registry.training_date
+        
+        while True:
+            leads = db.query(Lead).order_by(Lead.lead_id).offset(offset).limit(chunk_size).all()
+            if not leads:
+                break
 
-        for idx, lead in enumerate(leads):
-            propensity = float(probabilities[idx])
-            score = propensity * 100
-            category = self._categorise(propensity)
+            # Preprocess chunk
+            X_scaled = self._preprocess_batch(leads, preprocessor)
+            probabilities: np.ndarray = model.predict_proba(X_scaled)[:, 1]
 
-            abs_shap = np.abs(shap_values_all[idx]).flatten()
-            if abs_shap.shape[0] != len(preprocessor.feature_names):
-                abs_shap = abs_shap[: len(preprocessor.feature_names)]
-            feature_importance = sorted(zip(preprocessor.feature_names, abs_shap), key=lambda x: x[1], reverse=True)
-            reasons = explainer._pick_top_reasons(feature_importance, explainer.LEAD_REASON_MAP)[:3]
+            shap_values_all = tree_explainer.shap_values(X_scaled)
+            if isinstance(shap_values_all, list):
+                shap_values_all = shap_values_all[1]
 
-            prediction_id = str(uuid.uuid4())
+            predictions_to_add: list[LeadPrediction] = []
 
-            pred = LeadPrediction(
-                prediction_id=prediction_id,
-                lead_id=lead.lead_id,
-                propensity_ratio=propensity,
-                lead_score=score,
-                category=category,
-                top_reasons=reasons[:3],
-                model_version=registry.model_version,
-                model_accuracy=registry.accuracy,
-                algorithm=registry.algorithm,
-                prediction_timestamp=now,
-                training_timestamp=registry.training_date,
-                email=lead.email,
-                contact_number=lead.contact_number,
-            )
-            predictions_to_add.append(pred)
+            for idx, lead in enumerate(leads):
+                propensity = float(probabilities[idx])
+                score = propensity * 100
+                category = self._categorise(propensity)
 
-            results.append(
-                {
-                    'prediction_id': prediction_id,
-                    'lead_id': lead.lead_id,
-                    'full_name': lead.full_name,
-                    'propensity_ratio': propensity,
-                    'lead_score': score,
-                    'category': category,
-                    'top_reasons': reasons[:3],
-                    'email': lead.email,
-                    'contact_number': lead.contact_number,
-                    'model_version': registry.model_version,
-                    'model_accuracy': registry.accuracy,
-                    'algorithm': registry.algorithm,
-                    'prediction_timestamp': now,
-                    'training_timestamp': registry.training_date,
-                }
-            )
+                abs_shap = np.abs(shap_values_all[idx]).flatten()
+                if abs_shap.shape[0] != len(preprocessor.feature_names):
+                    abs_shap = abs_shap[: len(preprocessor.feature_names)]
+                feature_importance = sorted(zip(preprocessor.feature_names, abs_shap), key=lambda x: x[1], reverse=True)
+                reasons = explainer._pick_top_reasons(feature_importance, explainer.LEAD_REASON_MAP)[:3]
 
-        # Bulk insert
-        db.bulk_save_objects(predictions_to_add)
-        db.commit()
+                pred = LeadPrediction(
+                    prediction_id=str(uuid.uuid4()),
+                    lead_id=lead.lead_id,
+                    propensity_ratio=propensity,
+                    lead_score=score,
+                    category=category,
+                    top_reasons=reasons[:3],
+                    model_version=model_version,
+                    model_accuracy=model_accuracy,
+                    algorithm=algorithm,
+                    prediction_timestamp=now,
+                    training_timestamp=training_date,
+                    email=lead.email,
+                    contact_number=lead.contact_number,
+                )
+                predictions_to_add.append(pred)
+
+            # Bulk insert chunk and clear session
+            db.bulk_save_objects(predictions_to_add)
+            db.commit()
+            db.expunge_all()
+            
+            total_results += len(leads)
+            offset += chunk_size
 
         logger.info(
-            f"Generated {len(results)} lead predictions using model "
-            f"{registry.model_version}"
+            f"Generated {total_results} lead predictions using model "
+            f"{model_version}"
         )
-        return results
+        return []
 
     def predict_single(self, db: Session, lead_id: str) -> dict:
         """Generate a prediction for a single lead.
@@ -412,9 +401,15 @@ class LeadPredictor:
         df = pd.DataFrame(lead_data)
         X = df[self.FEATURE_COLS].copy()
 
+        # Force numeric types to avoid type inference issues on small chunks
+        numeric_cols = [c for c in self.FEATURE_COLS if c not in self.CATEGORICAL_COLS]
+        for col in numeric_cols:
+            X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0.0)
+
         # Fill missing values
         for col in X.select_dtypes(include=[np.number]).columns:
-            X[col] = X[col].fillna(X[col].median())
+            if col not in numeric_cols:
+                X[col] = X[col].fillna(X[col].median()).fillna(0.0)
         for col in X.select_dtypes(include=['object']).columns:
             X[col] = X[col].fillna('Unknown')
 

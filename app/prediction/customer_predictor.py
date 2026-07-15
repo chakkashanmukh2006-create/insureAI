@@ -81,100 +81,82 @@ class CustomerPredictor:
             settings.MODEL_STORAGE_PATH, 'customer'
         )
 
-        # 3. Fetch customers
-        customers = db.query(Customer).all()
-        if not customers:
-            logger.warning("No customers in database — nothing to predict.")
-            return []
-
-        # 4. Preprocess
-        X_scaled = self._preprocess_batch(customers, preprocessor)
-
-        # 5. Predict probabilities
-        probabilities: np.ndarray = model.predict_proba(X_scaled)[:, 1]
-
-        # Batch SHAP
+        # 3. Process in chunks to prevent Out-Of-Memory errors
+        chunk_size = 2000
+        offset = 0
+        total_results = 0
+        
         import shap
         tree_explainer = shap.TreeExplainer(model)
-        shap_values_all = tree_explainer.shap_values(X_scaled)
-        if isinstance(shap_values_all, list):
-            shap_values_all = shap_values_all[1]
-
-        # 6 + 7 + 8. Build predictions, analyse sentiment, persist
         explainer = Explainer()
         sentiment_analyzer = SentimentAnalyzer()
-
-        results: list[dict] = []
-        predictions_to_add: list[CustomerPrediction] = []
         now = datetime.now(timezone.utc)
+        
+        # Extract primitives to avoid DetachedInstanceError after expunge_all
+        model_version = registry.model_version
+        model_accuracy = registry.accuracy
+        algorithm = registry.algorithm
+        training_date = registry.training_date
+        
+        while True:
+            customers = db.query(Customer).order_by(Customer.customer_id).offset(offset).limit(chunk_size).all()
+            if not customers:
+                break
+                
+            # Preprocess chunk
+            X_scaled = self._preprocess_batch(customers, preprocessor)
+            probabilities: np.ndarray = model.predict_proba(X_scaled)[:, 1]
+            
+            shap_values_all = tree_explainer.shap_values(X_scaled)
+            if isinstance(shap_values_all, list):
+                shap_values_all = shap_values_all[1]
+                
+            predictions_to_add: list[CustomerPrediction] = []
+            
+            for idx, customer in enumerate(customers):
+                churn_prob = float(probabilities[idx])
+                risk_category = self._categorise(churn_prob)
 
-        for idx, customer in enumerate(customers):
-            churn_prob = float(probabilities[idx])
-            risk_category = self._categorise(churn_prob)
+                sentiment_result = sentiment_analyzer.analyze(getattr(customer, 'feedback', None))
 
-            # Sentiment analysis on feedback
-            sentiment_result = sentiment_analyzer.analyze(
-                getattr(customer, 'feedback', None)
-            )
+                abs_shap = np.abs(shap_values_all[idx]).flatten()
+                if abs_shap.shape[0] != len(preprocessor.feature_names):
+                    abs_shap = abs_shap[: len(preprocessor.feature_names)]
+                feature_importance = sorted(zip(preprocessor.feature_names, abs_shap), key=lambda x: x[1], reverse=True)
+                reasons = explainer._pick_top_reasons(feature_importance, explainer.CUSTOMER_REASON_MAP)[:3]
 
-            # Explainability
-            abs_shap = np.abs(shap_values_all[idx]).flatten()
-            if abs_shap.shape[0] != len(preprocessor.feature_names):
-                abs_shap = abs_shap[: len(preprocessor.feature_names)]
-            feature_importance = sorted(zip(preprocessor.feature_names, abs_shap), key=lambda x: x[1], reverse=True)
-            reasons = explainer._pick_top_reasons(feature_importance, explainer.CUSTOMER_REASON_MAP)[:3]
+                pred = CustomerPrediction(
+                    prediction_id=str(uuid.uuid4()),
+                    customer_id=customer.customer_id,
+                    churn_ratio=churn_prob,
+                    risk_category=risk_category,
+                    sentiment=sentiment_result['sentiment'],
+                    sentiment_score=sentiment_result['sentiment_score'],
+                    confidence_score=sentiment_result['confidence_score'],
+                    top_reasons=reasons[:3],
+                    model_version=model_version,
+                    model_accuracy=model_accuracy,
+                    algorithm=algorithm,
+                    prediction_timestamp=now,
+                    training_timestamp=training_date,
+                    email=customer.email,
+                    contact_number=customer.contact_number,
+                )
+                predictions_to_add.append(pred)
 
-            prediction_id = str(uuid.uuid4())
-
-            pred = CustomerPrediction(
-                prediction_id=prediction_id,
-                customer_id=customer.customer_id,
-                churn_ratio=churn_prob,
-                risk_category=risk_category,
-                sentiment=sentiment_result['sentiment'],
-                sentiment_score=sentiment_result['sentiment_score'],
-                confidence_score=sentiment_result['confidence_score'],
-                top_reasons=reasons[:3],
-                model_version=registry.model_version,
-                model_accuracy=registry.accuracy,
-                algorithm=registry.algorithm,
-                prediction_timestamp=now,
-                training_timestamp=registry.training_date,
-                email=customer.email,
-                contact_number=customer.contact_number,
-            )
-            predictions_to_add.append(pred)
-
-            results.append(
-                {
-                    'prediction_id': prediction_id,
-                    'customer_id': customer.customer_id,
-                    'name': customer.name,
-                    'churn_ratio': churn_prob,
-                    'risk_category': risk_category,
-                    'sentiment': sentiment_result['sentiment'],
-                    'sentiment_score': sentiment_result['sentiment_score'],
-                    'confidence_score': sentiment_result['confidence_score'],
-                    'top_reasons': reasons[:3],
-                    'email': customer.email,
-                    'contact_number': customer.contact_number,
-                    'model_version': registry.model_version,
-                    'model_accuracy': registry.accuracy,
-                    'algorithm': registry.algorithm,
-                    'prediction_timestamp': now,
-                    'training_timestamp': registry.training_date,
-                }
-            )
-
-        # Bulk insert
-        db.bulk_save_objects(predictions_to_add)
-        db.commit()
+            # Bulk insert chunk and clear session
+            db.bulk_save_objects(predictions_to_add)
+            db.commit()
+            db.expunge_all()
+            
+            total_results += len(customers)
+            offset += chunk_size
 
         logger.info(
-            f"Generated {len(results)} customer churn predictions using "
-            f"model {registry.model_version}"
+            f"Generated {total_results} customer churn predictions using "
+            f"model {model_version}"
         )
-        return results
+        return []
 
     def predict_single(self, db: Session, customer_id: str) -> dict:
         """Generate a churn prediction for a single customer.
@@ -439,9 +421,15 @@ class CustomerPredictor:
         df = pd.DataFrame(customer_data)
         X = df[self.FEATURE_COLS].copy()
 
+        # Force numeric types to avoid type inference issues on small chunks
+        numeric_cols = [c for c in self.FEATURE_COLS if c not in self.CATEGORICAL_COLS]
+        for col in numeric_cols:
+            X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0.0)
+
         # Fill missing values
         for col in X.select_dtypes(include=[np.number]).columns:
-            X[col] = X[col].fillna(X[col].median())
+            if col not in numeric_cols:
+                X[col] = X[col].fillna(X[col].median()).fillna(0.0)
         for col in X.select_dtypes(include=['object']).columns:
             X[col] = X[col].fillna('Unknown')
 

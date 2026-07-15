@@ -27,17 +27,13 @@ def train_models_task(job_id: str, db_session: Session, user_id: int, username: 
         log_audit(db_session, user_id, "train", "models", f"Training completed: {results}")
         
         # After training, generate predictions for all records
-        try:
-            log_cb("Generating predictions for all Lead records (this may take a moment)...")
-            lead_predictor = LeadPredictor()
-            lead_predictor.predict_all(db_session)
-            
-            log_cb("Generating predictions for all Customer records (this may take a moment)...")
-            customer_predictor = CustomerPredictor()
-            customer_predictor.predict_all(db_session)
-        except Exception as e:
-            logger.warning(f"Post-training prediction generation failed: {e}")
-            log_cb(f"Warning: Prediction generation encountered an issue: {e}")
+        log_cb("Generating predictions for all Lead records (this may take a moment)...")
+        lead_predictor = LeadPredictor()
+        lead_predictor.predict_all(db_session)
+        
+        log_cb("Generating predictions for all Customer records (this may take a moment)...")
+        customer_predictor = CustomerPredictor()
+        customer_predictor.predict_all(db_session)
             
         log_cb("Pipeline finished successfully!")
         job_manager.mark_completed(job_id, results)
