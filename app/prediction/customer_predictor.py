@@ -93,6 +93,13 @@ class CustomerPredictor:
         # 5. Predict probabilities
         probabilities: np.ndarray = model.predict_proba(X_scaled)[:, 1]
 
+        # Batch SHAP
+        import shap
+        tree_explainer = shap.TreeExplainer(model)
+        shap_values_all = tree_explainer.shap_values(X_scaled)
+        if isinstance(shap_values_all, list):
+            shap_values_all = shap_values_all[1]
+
         # 6 + 7 + 8. Build predictions, analyse sentiment, persist
         explainer = Explainer()
         sentiment_analyzer = SentimentAnalyzer()
@@ -111,12 +118,11 @@ class CustomerPredictor:
             )
 
             # Explainability
-            reasons = explainer.explain_customer(
-                model,
-                X_scaled.iloc[[idx]],
-                preprocessor.feature_names,
-                customer,
-            )
+            abs_shap = np.abs(shap_values_all[idx]).flatten()
+            if abs_shap.shape[0] != len(preprocessor.feature_names):
+                abs_shap = abs_shap[: len(preprocessor.feature_names)]
+            feature_importance = sorted(zip(preprocessor.feature_names, abs_shap), key=lambda x: x[1], reverse=True)
+            reasons = explainer._pick_top_reasons(feature_importance, explainer.CUSTOMER_REASON_MAP)[:3]
 
             prediction_id = str(uuid.uuid4())
 

@@ -80,18 +80,13 @@ def get_high_risk_customers(
     If no predictions exist yet, the system will automatically generate
     predictions for all customers before returning the high-risk ones.
     """
+    from app.training.model_manager import ModelManager
+    model, registry = ModelManager.load_latest_model(db, 'customer')
+    if model is None or registry is None:
+        raise HTTPException(status_code=400, detail="No trained customer model found. Please train a model first.")
+        
     predictor = CustomerPredictor()
-    results = predictor.get_high_risk(db)
-    
-    if not results:
-        # No predictions yet, generate them
-        try:
-            predictor.predict_all(db)
-            results = predictor.get_high_risk(db)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-    
-    return results
+    return predictor.get_high_risk(db)
 
 
 @router.get("/customers/predicted/all", response_model=List[HighRiskCustomerResponse],
@@ -106,18 +101,13 @@ def get_all_predicted_customers(
     If no predictions exist yet, the system will automatically generate
     predictions for all customers before returning the results.
     """
+    from app.training.model_manager import ModelManager
+    model, registry = ModelManager.load_latest_model(db, 'customer')
+    if model is None or registry is None:
+        raise HTTPException(status_code=400, detail="No trained customer model found. Please train a model first.")
+        
     predictor = CustomerPredictor()
-    results = predictor.get_all_predicted(db)
-    
-    if not results:
-        # No predictions yet, generate them
-        try:
-            predictor.predict_all(db)
-            results = predictor.get_all_predicted(db)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-    
-    return results
+    return predictor.get_all_predicted(db)
 
 
 @router.get("/customers/{customer_id}", response_model=CustomerResponse,

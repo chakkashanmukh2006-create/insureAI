@@ -81,18 +81,13 @@ def get_top20_leads(
     If no predictions exist yet, the system will automatically generate
     predictions for all leads before returning the top 20.
     """
+    from app.training.model_manager import ModelManager
+    model, registry = ModelManager.load_latest_model(db, 'lead')
+    if model is None or registry is None:
+        raise HTTPException(status_code=400, detail="No trained lead model found. Please train a model first.")
+        
     predictor = LeadPredictor()
-    results = predictor.get_top20(db)
-    
-    if not results:
-        # No predictions yet, generate them
-        try:
-            predictor.predict_all(db)
-            results = predictor.get_top20(db)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-    
-    return results
+    return predictor.get_top20(db)
 
 
 @router.get("/leads/predicted/all", response_model=List[Top20LeadResponse],
@@ -107,18 +102,13 @@ def get_all_predicted_leads(
     If no predictions exist yet, the system will automatically generate
     predictions for all leads before returning the results.
     """
+    from app.training.model_manager import ModelManager
+    model, registry = ModelManager.load_latest_model(db, 'lead')
+    if model is None or registry is None:
+        raise HTTPException(status_code=400, detail="No trained lead model found. Please train a model first.")
+        
     predictor = LeadPredictor()
-    results = predictor.get_all_predicted(db)
-    
-    if not results:
-        # No predictions yet, generate them
-        try:
-            predictor.predict_all(db)
-            results = predictor.get_all_predicted(db)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-    
-    return results
+    return predictor.get_all_predicted(db)
 
 
 @router.get("/leads/{lead_id}", response_model=LeadResponse,

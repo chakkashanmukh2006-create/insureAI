@@ -93,6 +93,13 @@ class LeadPredictor:
         # 5. Predict probabilities
         probabilities: np.ndarray = model.predict_proba(X_scaled)[:, 1]
 
+        # Batch SHAP
+        import shap
+        tree_explainer = shap.TreeExplainer(model)
+        shap_values_all = tree_explainer.shap_values(X_scaled)
+        if isinstance(shap_values_all, list):
+            shap_values_all = shap_values_all[1]
+
         # 6 + 7. Build predictions and persist
         explainer = Explainer()
         results: list[dict] = []
@@ -104,9 +111,11 @@ class LeadPredictor:
             score = propensity * 100
             category = self._categorise(propensity)
 
-            reasons = explainer.explain_lead(
-                model, X_scaled.iloc[[idx]], preprocessor.feature_names, lead
-            )
+            abs_shap = np.abs(shap_values_all[idx]).flatten()
+            if abs_shap.shape[0] != len(preprocessor.feature_names):
+                abs_shap = abs_shap[: len(preprocessor.feature_names)]
+            feature_importance = sorted(zip(preprocessor.feature_names, abs_shap), key=lambda x: x[1], reverse=True)
+            reasons = explainer._pick_top_reasons(feature_importance, explainer.LEAD_REASON_MAP)[:3]
 
             prediction_id = str(uuid.uuid4())
 
