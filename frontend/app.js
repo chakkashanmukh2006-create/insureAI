@@ -421,7 +421,7 @@ async function handleFileUpload(file, endpoint, type) {
     
     try {
         const token = localStorage.getItem('token');
-        const response = await fetch(endpoint, {
+        const response = await fetch(`${API_BASE}${endpoint}`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`
