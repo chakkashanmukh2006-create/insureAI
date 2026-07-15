@@ -40,6 +40,32 @@
                         <i class="ph-bold ph-arrow-right"></i>
                     </button>
                     <div id="login-error" class="error-text"></div>
+                    <div style="text-align: center; margin-top: 15px; font-size: 0.9em; color: var(--text-secondary);">
+                        Don't have an account? <a href="#" id="show-register" style="color: var(--primary); text-decoration: none;">Sign Up</a>
+                    </div>
+                </form>
+
+                <form id="register-form" style="display: none;">
+                    <div class="input-group">
+                        <i class="ph ph-user"></i>
+                        <input type="text" id="reg-username" placeholder="Username" required>
+                    </div>
+                    <div class="input-group">
+                        <i class="ph ph-envelope-simple"></i>
+                        <input type="email" id="reg-email" placeholder="Email" required>
+                    </div>
+                    <div class="input-group">
+                        <i class="ph ph-lock-key"></i>
+                        <input type="password" id="reg-password" placeholder="Password" required>
+                    </div>
+                    <button type="submit" class="btn primary-btn" id="register-btn">
+                        <span>Sign Up</span>
+                        <i class="ph-bold ph-arrow-right"></i>
+                    </button>
+                    <div id="register-error" class="error-text"></div>
+                    <div style="text-align: center; margin-top: 15px; font-size: 0.9em; color: var(--text-secondary);">
+                        Already have an account? <a href="#" id="show-login" style="color: var(--primary); text-decoration: none;">Sign In</a>
+                    </div>
                 </form>
             </div>
         </div>

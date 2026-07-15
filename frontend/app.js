@@ -75,6 +75,62 @@ function setupEventListeners() {
         }
     });
     
+    // Register Form Toggle
+    document.getElementById('show-register').addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('login-form').style.display = 'none';
+        document.getElementById('register-form').style.display = 'block';
+        document.querySelector('.login-card p').textContent = 'Create a new account';
+    });
+
+    document.getElementById('show-login').addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('register-form').style.display = 'none';
+        document.getElementById('login-form').style.display = 'block';
+        document.querySelector('.login-card p').textContent = 'Sign in to access intelligence';
+    });
+
+    // Register Form Submit
+    document.getElementById('register-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('register-btn');
+        const err = document.getElementById('register-error');
+        
+        const username = document.getElementById('reg-username').value;
+        const email = document.getElementById('reg-email').value;
+        const password = document.getElementById('reg-password').value;
+        
+        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i><span>Creating Account...</span>';
+        btn.disabled = true;
+        err.textContent = '';
+        
+        try {
+            const res = await fetch(`${API_BASE}/register`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, email, password })
+            });
+            
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || 'Registration failed');
+            }
+            
+            showToast('Account created successfully! Please sign in.', 'success');
+            document.getElementById('show-login').click();
+            document.getElementById('reg-username').value = '';
+            document.getElementById('reg-email').value = '';
+            document.getElementById('reg-password').value = '';
+        } catch (error) {
+            err.textContent = error.message;
+        } finally {
+            btn.innerHTML = '<span>Sign Up</span><i class="ph-bold ph-arrow-right"></i>';
+            btn.disabled = false;
+        }
+    });
+    
     // Logout
     document.getElementById('logout-btn').addEventListener('click', () => {
         state.token = null;
