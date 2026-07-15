@@ -246,6 +246,16 @@ async function fetchWithAuth(url) {
         document.getElementById('logout-btn').click();
         throw new Error('Session expired');
     }
+    
+    if (!res.ok) {
+        let errMessage = `Server error ${res.status}`;
+        try {
+            const errData = await res.json();
+            errMessage = errData.detail || errMessage;
+        } catch (e) {}
+        throw new Error(errMessage);
+    }
+    
     return res.json();
 }
 
@@ -582,7 +592,9 @@ async function loadAllLeads() {
         tbody.innerHTML = htmlStr;
     } catch (e) {
         console.error(e);
-        showToast('Failed to load all leads', 'error');
+        const tbody = document.getElementById('all-leads-tbody');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--danger)">${e.message}</td></tr>`;
+        showToast(e.message || 'Failed to load all leads', 'error');
     }
 }
 
@@ -613,6 +625,8 @@ async function loadAllCustomers() {
         tbody.innerHTML = htmlStr;
     } catch (e) {
         console.error(e);
-        showToast('Failed to load all customers', 'error');
+        const tbody = document.getElementById('all-customers-tbody');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--danger)">${e.message}</td></tr>`;
+        showToast(e.message || 'Failed to load all customers', 'error');
     }
 }
