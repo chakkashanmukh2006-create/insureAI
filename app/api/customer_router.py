@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query
 from fastapi.responses import Response
 import csv
 import io
@@ -8,6 +8,7 @@ from app.database.session import get_db
 from app.models.customer import Customer
 from app.models.user import User
 from app.schemas.customer import CustomerResponse, HighRiskCustomerResponse
+from app.schemas.pagination import PaginatedResponse
 from app.schemas.upload import UploadResponse
 from app.auth.dependencies import get_current_user
 from app.prediction.customer_predictor import CustomerPredictor
@@ -89,10 +90,12 @@ def get_high_risk_customers(
     return predictor.get_high_risk(db)
 
 
-@router.get("/customers/predicted/all", response_model=List[HighRiskCustomerResponse],
+@router.get("/customers/predicted/all", response_model=PaginatedResponse[HighRiskCustomerResponse],
             summary="Get All Predicted Customers",
             description="Returns all customers with their latest prediction scores.")
 def get_all_predicted_customers(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(100, ge=1, le=1000, description="Items per page"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -107,7 +110,7 @@ def get_all_predicted_customers(
         raise HTTPException(status_code=400, detail="No trained customer model found. Please train a model first.")
         
     predictor = CustomerPredictor()
-    return predictor.get_all_predicted(db)
+    return predictor.get_all_predicted(db, page=page, limit=limit)
 
 
 @router.get("/customers/{customer_id}", response_model=CustomerResponse,

@@ -302,16 +302,18 @@ class LeadPredictor:
 
         return results
 
-    def get_all_predicted(self, db: Session) -> list[dict]:
+    def get_all_predicted(self, db: Session, page: int = 1, limit: int = 100) -> dict:
         """Get all leads with their latest propensity predictions.
 
         Uses a subquery to select the most recent prediction per ``lead_id``.
 
         Args:
             db: Active SQLAlchemy session.
+            page: Page number (1-indexed).
+            limit: Number of items per page.
 
         Returns:
-            List of all result dictionaries ordered by propensity ratio descending.
+            Dictionary containing paginated data and metadata.
         """
         # Subquery: latest prediction timestamp per lead
         subq = (
@@ -323,20 +325,32 @@ class LeadPredictor:
             .subquery()
         )
 
+        base_query = db.query(LeadPrediction).join(
+            subq,
+            (LeadPrediction.lead_id == subq.c.lead_id)
+            & (LeadPrediction.prediction_timestamp == subq.c.max_ts),
+        )
+
+        total_count = base_query.count()
+        import math
+        total_pages = math.ceil(total_count / limit) if limit > 0 else 0
+
         predictions = (
-            db.query(LeadPrediction)
-            .join(
-                subq,
-                (LeadPrediction.lead_id == subq.c.lead_id)
-                & (LeadPrediction.prediction_timestamp == subq.c.max_ts),
-            )
+            base_query
             .order_by(desc(LeadPrediction.propensity_ratio))
-            .limit(100)
+            .offset((page - 1) * limit)
+            .limit(limit)
             .all()
         )
 
         if not predictions:
-            return []
+            return {
+                "data": [],
+                "total": total_count,
+                "page": page,
+                "limit": limit,
+                "total_pages": total_pages
+            }
 
         lead_ids = [pred.lead_id for pred in predictions]
         leads = db.query(Lead).filter(Lead.lead_id.in_(lead_ids)).all()
@@ -361,7 +375,13 @@ class LeadPredictor:
                 }
             )
 
-        return results
+        return {
+            "data": results,
+            "total": total_count,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages
+        }
 
     # ------------------------------------------------------------------ #
     # Internal helpers

@@ -325,7 +325,7 @@ class CustomerPredictor:
 
         return results
 
-    def get_all_predicted(self, db: Session) -> list[dict]:
+    def get_all_predicted(self, db: Session, page: int = 1, limit: int = 100) -> dict:
         """Get all customers with their latest predictions.
 
         Uses a subquery to select the most recent prediction per
@@ -333,9 +333,11 @@ class CustomerPredictor:
 
         Args:
             db: Active SQLAlchemy session.
+            page: Page number (1-indexed).
+            limit: Number of items per page.
 
         Returns:
-            List of customer result dictionaries, ordered by churn ratio descending.
+            Dictionary containing paginated data and metadata.
         """
         # Subquery: latest prediction timestamp per customer
         subq = (
@@ -347,20 +349,32 @@ class CustomerPredictor:
             .subquery()
         )
 
+        base_query = db.query(CustomerPrediction).join(
+            subq,
+            (CustomerPrediction.customer_id == subq.c.customer_id)
+            & (CustomerPrediction.prediction_timestamp == subq.c.max_ts),
+        )
+
+        total_count = base_query.count()
+        import math
+        total_pages = math.ceil(total_count / limit) if limit > 0 else 0
+
         predictions = (
-            db.query(CustomerPrediction)
-            .join(
-                subq,
-                (CustomerPrediction.customer_id == subq.c.customer_id)
-                & (CustomerPrediction.prediction_timestamp == subq.c.max_ts),
-            )
+            base_query
             .order_by(desc(CustomerPrediction.churn_ratio))
-            .limit(100)
+            .offset((page - 1) * limit)
+            .limit(limit)
             .all()
         )
 
         if not predictions:
-            return []
+            return {
+                "data": [],
+                "total": total_count,
+                "page": page,
+                "limit": limit,
+                "total_pages": total_pages
+            }
 
         customer_ids = [pred.customer_id for pred in predictions]
         customers = db.query(Customer).filter(Customer.customer_id.in_(customer_ids)).all()
@@ -385,7 +399,13 @@ class CustomerPredictor:
                 }
             )
 
-        return results
+        return {
+            "data": results,
+            "total": total_count,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages
+        }
 
     # ------------------------------------------------------------------ #
     # Internal helpers

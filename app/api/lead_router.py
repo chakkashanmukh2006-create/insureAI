@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query
 from fastapi.responses import Response
 import csv
 import io
@@ -8,6 +8,7 @@ from app.database.session import get_db
 from app.models.lead import Lead
 from app.models.user import User
 from app.schemas.lead import LeadResponse, Top20LeadResponse
+from app.schemas.pagination import PaginatedResponse
 from app.schemas.upload import UploadResponse
 from app.auth.dependencies import get_current_user
 from app.prediction.lead_predictor import LeadPredictor
@@ -90,10 +91,12 @@ def get_top20_leads(
     return predictor.get_top20(db)
 
 
-@router.get("/leads/predicted/all", response_model=List[Top20LeadResponse],
+@router.get("/leads/predicted/all", response_model=PaginatedResponse[Top20LeadResponse],
             summary="Get All Predicted Leads",
             description="Returns all leads with their latest prediction scores.")
 def get_all_predicted_leads(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(100, ge=1, le=1000, description="Items per page"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -108,7 +111,7 @@ def get_all_predicted_leads(
         raise HTTPException(status_code=400, detail="No trained lead model found. Please train a model first.")
         
     predictor = LeadPredictor()
-    return predictor.get_all_predicted(db)
+    return predictor.get_all_predicted(db, page=page, limit=limit)
 
 
 @router.get("/leads/{lead_id}", response_model=LeadResponse,

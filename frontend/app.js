@@ -429,10 +429,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cardLeads) {
         cardLeads.addEventListener('click', async () => {
             modalLeads.classList.add('active');
-            await loadAllLeads();
+            await loadAllLeads(1);
         });
     }
     if (closeLeads) closeLeads.addEventListener('click', () => modalLeads.classList.remove('active'));
+
+    const prevLeadsBtn = document.getElementById('prev-leads-btn');
+    const nextLeadsBtn = document.getElementById('next-leads-btn');
+    if (prevLeadsBtn) prevLeadsBtn.addEventListener('click', async () => await loadAllLeads(currentLeadsPage - 1));
+    if (nextLeadsBtn) nextLeadsBtn.addEventListener('click', async () => await loadAllLeads(currentLeadsPage + 1));
 
     // Customer Modal
     const modalCustomers = document.getElementById('modal-all-customers');
@@ -442,10 +447,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cardCustomers) {
         cardCustomers.addEventListener('click', async () => {
             modalCustomers.classList.add('active');
-            await loadAllCustomers();
+            await loadAllCustomers(1);
         });
     }
     if (closeCustomers) closeCustomers.addEventListener('click', () => modalCustomers.classList.remove('active'));
+
+    const prevCustomersBtn = document.getElementById('prev-customers-btn');
+    const nextCustomersBtn = document.getElementById('next-customers-btn');
+    if (prevCustomersBtn) prevCustomersBtn.addEventListener('click', async () => await loadAllCustomers(currentCustomersPage - 1));
+    if (nextCustomersBtn) nextCustomersBtn.addEventListener('click', async () => await loadAllCustomers(currentCustomersPage + 1));
 
     // Training History Modal
     const modalTraining = document.getElementById('modal-training-history');
@@ -605,16 +615,20 @@ async function loadTrainingHistory() {
     }
 }
 
-async function loadAllLeads() {
+let currentLeadsPage = 1;
+async function loadAllLeads(page = 1) {
     try {
+        currentLeadsPage = page;
         const tbody = document.getElementById('all-leads-tbody');
         tbody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
         
-        const data = await fetchWithAuth('/leads/predicted/all');
+        const response = await fetchWithAuth(`/leads/predicted/all?page=${page}&limit=100`);
         tbody.innerHTML = '';
         
         let htmlStr = '';
-        data.forEach(lead => {
+        const items = response.data || [];
+        
+        items.forEach(lead => {
             const scorePercent = (lead.propensity_ratio * 100).toFixed(1);
             let badgeClass = 'warning';
             if (lead.propensity_ratio > 0.7) badgeClass = 'success';
@@ -629,6 +643,16 @@ async function loadAllLeads() {
             `;
         });
         tbody.innerHTML = htmlStr;
+        
+        // Update pagination controls
+        const indicator = document.getElementById('page-leads-indicator');
+        const prevBtn = document.getElementById('prev-leads-btn');
+        const nextBtn = document.getElementById('next-leads-btn');
+        
+        if (indicator) indicator.textContent = `Page ${response.page} of ${response.total_pages || 1}`;
+        if (prevBtn) prevBtn.disabled = response.page <= 1;
+        if (nextBtn) nextBtn.disabled = response.page >= (response.total_pages || 1);
+        
     } catch (e) {
         console.error(e);
         const tbody = document.getElementById('all-leads-tbody');
@@ -637,16 +661,20 @@ async function loadAllLeads() {
     }
 }
 
-async function loadAllCustomers() {
+let currentCustomersPage = 1;
+async function loadAllCustomers(page = 1) {
     try {
+        currentCustomersPage = page;
         const tbody = document.getElementById('all-customers-tbody');
-        tbody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5">Loading...</td></tr>';
         
-        const data = await fetchWithAuth('/customers/predicted/all');
+        const response = await fetchWithAuth(`/customers/predicted/all?page=${page}&limit=100`);
         tbody.innerHTML = '';
         
         let htmlStr = '';
-        data.forEach(cust => {
+        const items = response.data || [];
+        
+        items.forEach(cust => {
             const scorePercent = (cust.churn_ratio * 100).toFixed(1);
             let badgeClass = 'warning';
             if (cust.churn_ratio > 0.7) badgeClass = 'danger';
@@ -662,6 +690,16 @@ async function loadAllCustomers() {
             `;
         });
         tbody.innerHTML = htmlStr;
+        
+        // Update pagination controls
+        const indicator = document.getElementById('page-customers-indicator');
+        const prevBtn = document.getElementById('prev-customers-btn');
+        const nextBtn = document.getElementById('next-customers-btn');
+        
+        if (indicator) indicator.textContent = `Page ${response.page} of ${response.total_pages || 1}`;
+        if (prevBtn) prevBtn.disabled = response.page <= 1;
+        if (nextBtn) nextBtn.disabled = response.page >= (response.total_pages || 1);
+        
     } catch (e) {
         console.error(e);
         const tbody = document.getElementById('all-customers-tbody');
