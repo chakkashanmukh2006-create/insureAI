@@ -16,8 +16,6 @@ scikit-learn
 xgboost
 joblib
 shap
-transformers
-torch
 vaderSentiment
 openpyxl
 aiofiles
